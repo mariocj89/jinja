@@ -149,6 +149,30 @@ def is_internal_attribute(obj: t.Any, attr: str) -> bool:
     return attr.startswith("__")
 
 
+def is_private_attribute(
+    obj: t.Any, attr: str, respect_module_all: bool = True
+) -> bool:
+    """Test if the attribute given is not part of the object's public API.
+    Attributes starting with an underscore are private for any object. For
+    modules that define ``__all__``, names not listed in it are private too.
+
+    >>> from jinja2.sandbox import is_private_attribute
+    >>> is_private_attribute(str, "_foo")
+    True
+    >>> import json
+    >>> is_private_attribute(json, "dumps")
+    False
+    >>> is_private_attribute(json, "codecs")
+    True
+    """
+    if attr.startswith("_"):
+        return True
+    if respect_module_all and isinstance(obj, types.ModuleType):
+        exports = getattr(obj, "__all__", None)
+        return exports is not None and attr not in exports
+    return False
+
+
 def modifies_known_mutable(obj: t.Any, attr: str) -> bool:
     """This function checks if an attribute on a builtin mutable object
     (list, dict, set or deque) or the corresponding ABCs would modify it
@@ -239,6 +263,10 @@ class SandboxedEnvironment(Environment):
     #: .. versionadded:: 2.6
     intercepted_unops: frozenset[str] = frozenset()
 
+    #: if enabled, module attributes not listed in the module's ``__all__``
+    #: are treated as private.
+    respect_module_all: bool = True
+
     def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
         super().__init__(*args, **kwargs)
         self.globals["range"] = safe_range
@@ -252,7 +280,10 @@ class SandboxedEnvironment(Environment):
         special attributes of internal python objects as returned by the
         :func:`is_internal_attribute` function.
         """
-        return not (attr.startswith("_") or is_internal_attribute(obj, attr))
+        return not (
+            is_private_attribute(obj, attr, self.respect_module_all)
+            or is_internal_attribute(obj, attr)
+        )
 
     def is_safe_callable(self, obj: t.Any) -> bool:
         """Check if an object is safely callable. By default callables
